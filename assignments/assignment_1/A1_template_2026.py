@@ -325,40 +325,11 @@ def show_body(
 
 
 def main() -> None:
-    """Score one randomly-sampled body against the target set."""
-    targets = load_targets()
+    """Run the evolutionary computation experiment."""
 
-    console.log(f"encoding      : {GENOTYPE}")
-    console.log(f"module budget : {NUM_OF_MODULES}")
-    console.log(f"targets       : {len(targets)} bodies from {TARGET_DIR.name}")
-    console.log(
-        "target sizes  : "
-        + ", ".join(str(t.number_of_nodes()) for t in targets),
-    )
+    from exp1.run_experiments import run_experiment
 
-    # How far apart are the targets from each other? Your fitness cannot go
-    # below the best possible compromise, and this is the clue to where that is.
-    spread = [
-        tree_edit_distance(a, b)
-        for i, a in enumerate(targets)
-        for b in targets[i + 1 :]
-    ]
-    console.log(f"target spread : mean pairwise distance {np.mean(spread):.2f}")
-
-    # --- One random body --------------------------------------------------- #
-    body = random_body(GENOTYPE, NUM_OF_MODULES)
-    fitness = fitness_function(body, targets)
-
-    console.log("")
-    console.log(f"random body   : {body.number_of_nodes()} modules")
-    console.log(
-        "per-target    : "
-        + ", ".join(f"{d:.1f}" for d in distances_to_targets(body, targets)),
-    )
-    console.log(f"fitness       : {fitness:.4f}   (lower is better)")
-
-    show_body(body, MODE, file_name=f"random_{GENOTYPE}")
-
+    run_experiment()
 
 if __name__ == "__main__":
     main()
