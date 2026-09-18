@@ -17,3 +17,7 @@ VARIANTS: dict[str, MutationType] = {
 
 RESULTS_DIR: Path = Path(__file__).resolve().parent / "results"
 RESULTS_DIR.mkdir(exist_ok=True)
+
+# camera field-of-view
+# default is 5, smaller = more zoomed in
+CAM_FOVY: float = 1.7

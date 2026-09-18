@@ -277,6 +277,7 @@ def show_body(
     body: nx.DiGraph,
     mode: ViewerTypes = MODE,
     file_name: str = "body",
+    cam_fovy: float | None = None,
 ) -> None:
     """Build a body graph in MuJoCo and look at it.
 
@@ -311,7 +312,12 @@ def show_body(
         case "frame":
             # A still image - the cheapest way to eyeball a body.
             save_path = str(DATA / f"{file_name}.png")
-            single_frame_renderer(model, data, save=True, save_path=save_path)
+            single_frame_renderer(model,
+                data,
+                save=True,
+                save_path=save_path,
+                cam_fovy=cam_fovy,
+            )
             console.log(f"saved {save_path}")
         case "video":
             # Mostly useful for showing a body slumping under gravity.
@@ -327,7 +333,7 @@ def show_body(
 def main() -> None:
     """Run the evolutionary computation experiment."""
 
-    from exp1.run_experiments import run_experiment
+    from experiment.run_experiments import run_experiment
 
     run_experiment()
 

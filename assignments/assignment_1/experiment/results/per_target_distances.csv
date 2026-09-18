@@ -1,0 +1,16 @@
+variant,seed,target_00,target_01,target_02,target_03,target_04
+replace_node,42,11.0,12.0,12.5,14.0,15.0
+replace_node,43,9.5,10.5,11.0,14.0,15.5
+replace_node,44,8.5,9.5,10.0,14.5,16.0
+replace_node,45,8.5,8.5,9.5,12.5,16.5
+replace_node,46,11.5,12.5,13.0,12.5,13.5
+subtree_replacement,42,10.5,11.0,10.5,13.0,13.5
+subtree_replacement,43,10.5,11.0,11.0,12.0,12.5
+subtree_replacement,44,10.0,10.0,12.0,11.0,13.5
+subtree_replacement,45,11.5,11.0,11.5,12.0,13.0
+subtree_replacement,46,12.5,12.0,12.5,13.0,13.0
+random_search,42,16.5,16.5,16.0,15.5,16.0
+random_search,43,16.5,15.0,17.0,16.5,17.0
+random_search,44,16.5,16.0,17.0,15.0,16.5
+random_search,45,17.5,14.0,16.5,16.5,16.5
+random_search,46,17.5,16.0,15.5,16.5,16.5

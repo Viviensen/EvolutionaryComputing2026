@@ -1,19 +1,23 @@
 import csv
+import statistics as stats
 
 import matplotlib.pyplot as plt
 import numpy as np
 
 from ariel.ec.genotypes.tree.tree_genome import TreeGenome
 
+from tree_edit_distance import distances_to_targets
+
 from A1_template_2026 import show_body
-from .EA import run_ea, run_random_search
-from .settings import SEEDS, VARIANTS, RESULTS_DIR
+from .EA import run_ea, run_random_search, TARGETS
+from .settings import SEEDS, VARIANTS, RESULTS_DIR, CAM_FOVY
 
 
 type HistoryRow = dict[str, float | int]
 type History = list[HistoryRow]
 type AllHistories = dict[str, list[History]]
 type FinalResultRow = dict[str, float | int | str]
+type PerTargetRow = dict[str, float | int | str]
 
 
 # ============================================================
@@ -40,6 +44,54 @@ def save_final_results(results: list[FinalResultRow]) -> None:
         writer = csv.DictWriter(file, fieldnames=["variant", "seed", "best_fitness", "modules"])
         writer.writeheader()
         writer.writerows(results)
+
+
+def summarize_final_results() -> None:
+    """Aggregate final_results.csv into mean +/- std per variant."""
+
+    with open(RESULTS_DIR / "final_results.csv", newline="") as file:
+        rows = list(csv.DictReader(file))
+
+    by_variant: dict[str, list[dict[str, float]]] = {}
+    for row in rows:
+        by_variant.setdefault(row["variant"], []).append({
+            "fitness": float(row["best_fitness"]),
+            "modules": float(row["modules"]),
+        })
+
+    summary_path = RESULTS_DIR / "summary_table.csv"
+    with open(summary_path, "w", newline="") as file:
+        writer = csv.writer(file)
+        writer.writerow([
+            "variant", "n", "fitness_mean", "fitness_std", "modules_mean", "modules_std",
+        ])
+        for variant, entries in by_variant.items():
+            fitness = [e["fitness"] for e in entries]
+            modules = [e["modules"] for e in entries]
+            writer.writerow([
+                variant,
+                len(entries),
+                round(stats.mean(fitness), 3),
+                round(stats.pstdev(fitness), 3),
+                round(stats.mean(modules), 3),
+                round(stats.pstdev(modules), 3),
+            ])
+
+    print(f"saved {summary_path}")
+
+
+def save_per_target_distances(rows: list[PerTargetRow]) -> None:
+    """Save each best individual's tree-edit distance to every target separately."""
+
+    file_name = RESULTS_DIR / "per_target_distances.csv"
+    fieldnames = ["variant", "seed"] + [f"target_{i:02d}" for i in range(len(TARGETS))]
+
+    with open(file_name, "w", newline="") as file:
+        writer = csv.DictWriter(file, fieldnames=fieldnames)
+        writer.writeheader()
+        writer.writerows(rows)
+
+    print(f"saved {file_name}")
 
 
 # ============================================================
@@ -107,6 +159,7 @@ def run_experiment() -> tuple[AllHistories, list[FinalResultRow]]:
     all_histories["random_search"] = []
 
     final_results: list[FinalResultRow] = []
+    per_target_results: list[PerTargetRow] = []
 
     # EA1 and EA2
     for variant, mutation_type in VARIANTS.items():
@@ -126,7 +179,16 @@ def run_experiment() -> tuple[AllHistories, list[FinalResultRow]]:
                 "modules": body.number_of_nodes(),
             })
 
-            show_body(body, mode="frame", file_name=str(RESULTS_DIR / f"best_{variant}_seed_{seed}"))
+            per_target_results.append({
+                "variant": variant,
+                "seed": seed,
+                **{
+                    f"target_{i:02d}": distance
+                    for i, distance in enumerate(distances_to_targets(body, TARGETS))
+                },
+            })
+
+            show_body(body, mode="frame", file_name=str(RESULTS_DIR / f"best_{variant}_seed_{seed}"), cam_fovy=CAM_FOVY)
 
             print(
                 f"\nFINAL | {variant} | seed = {seed} | "
@@ -150,7 +212,18 @@ def run_experiment() -> tuple[AllHistories, list[FinalResultRow]]:
             "modules": body.number_of_nodes(),
         })
 
+        per_target_results.append({
+            "variant": "random_search",
+            "seed": seed,
+            **{
+                f"target_{i:02d}": distance
+                for i, distance in enumerate(distances_to_targets(body, TARGETS))
+            },
+        })
+
     save_final_results(final_results)
+    summarize_final_results()
+    save_per_target_distances(per_target_results)
 
     plot_best_fitness(all_histories)
     plot_mean_fitness(all_histories)
@@ -177,3 +250,4 @@ if __name__ == "__main__":
             f"fitness = {result['best_fitness']:.3f} | "
             f"modules = {result['modules']}"
         )
+    summarize_final_results()

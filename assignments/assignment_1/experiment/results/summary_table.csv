@@ -1,0 +1,4 @@
+variant,n,fitness_mean,fitness_std,modules_mean,modules_std
+replace_node,5,14.162,0.478,11.8,2.04
+subtree_replacement,5,12.64,0.321,13.2,0.98
+random_search,5,16.983,0.299,21.0,0.0
