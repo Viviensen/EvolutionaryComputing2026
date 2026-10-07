@@ -1,656 +1,324 @@
 """Run and analyse Assignment 2 experiments."""
 
-from __future__ import annotations
+# cSpell:ignore generalisation
 
 import argparse
 import csv
 from pathlib import Path
+from typing import Any
 
 import matplotlib.pyplot as plt
 import numpy as np
 
-from EA import RunResult, mutation_parameters, run_ea, run_random_search
+from config import CONDITIONS, FINAL_SEEDS, N_TEST_POSITIONS, RESULTS_DIR, TEST_RADIUS
+from EA import mutation_parameters, run_ea, run_random_search
 from eval import Evaluator
-from config import (
-    CONDITIONS,
-    FINAL_SEEDS,
-    N_TEST_POSITIONS,
-    RESULTS_DIR,
-    TEST_RADIUS,
-    evaluation_budget,
-)
+
+Row = dict[str, Any]
 
 
-# ---------------------------------------------------------------------------
-# File utilities
-# ---------------------------------------------------------------------------
+def save_csv(path: Path, rows: list[Row]) -> None:
+    """Save list of dictionaries to CSV."""
 
-
-def ensure_results_dir() -> None:
-    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
-
-
-def write_dict_rows(
-    path: Path,
-    rows: list[dict],
-) -> None:
     if not rows:
         return
 
-    with path.open("w", newline="") as file:
-        writer = csv.DictWriter(
-            file,
-            fieldnames=list(rows[0].keys()),
-        )
-
+    with open(path, "w", newline="", encoding="utf-8") as file:
+        writer = csv.DictWriter(file, fieldnames=rows[0].keys())
         writer.writeheader()
         writer.writerows(rows)
 
 
-# ---------------------------------------------------------------------------
-# One run
-# ---------------------------------------------------------------------------
+def run_experiment(condition: str, seed: int) -> Row:
+    """Run one experiment and save results."""
 
-
-def evaluate_final_controller(
-    result: RunResult,
-    evaluator: Evaluator,
-) -> dict:
-    distances = evaluator.evaluate_generalisation(
-        result.best_genotype,
-        N_TEST_POSITIONS,
-        TEST_RADIUS,
-    )
-
-    return {
-        "condition": result.condition,
-        "seed": result.seed,
-        "training_fitness": result.best_training_fitness,
-        "test_mean": float(np.mean(distances)),
-        "test_std": float(np.std(distances)),
-        "test_median": float(np.median(distances)),
-        "test_min": float(np.min(distances)),
-        "test_max": float(np.max(distances)),
-        **{
-            f"test_position_{i:02d}": distance
-            for i, distance in enumerate(distances)
-        },
-    }
-
-
-def save_run(
-    result: RunResult,
-    final_row: dict,
-) -> None:
-    run_dir = (
-        RESULTS_DIR
-        / result.condition
-        / f"seed_{result.seed}"
-    )
-
-    run_dir.mkdir(parents=True, exist_ok=True)
-
-    write_dict_rows(
-        run_dir / "history.csv",
-        result.history,
-    )
-
-    if result.mutation_log:
-        write_dict_rows(
-            run_dir / "mutations.csv",
-            result.mutation_log,
-        )
-
-    write_dict_rows(
-        run_dir / "final.csv",
-        [final_row],
-    )
-
-    np.save(
-        run_dir / "best_genotype.npy",
-        result.best_genotype,
-    )
-
-
-def run_one(
-    condition: str,
-    seed: int,
-) -> dict:
-    evaluator = Evaluator()
+    print()
+    print("=" * 60)
+    print(f"{condition.upper()} | seed {seed}")
+    print("=" * 60)
 
     if condition == "random":
-        result = run_random_search(
-            seed,
-            evaluator,
-            evaluation_budget(),
-        )
+        result = run_random_search(seed)
     else:
-        result = run_ea(
-            condition,
-            seed,
-            evaluator,
-        )
+        result = run_ea(condition, seed)
 
-    final_row = evaluate_final_controller(
-        result,
-        evaluator,
-    )
+    evaluator = Evaluator()
+    test_distances = evaluator.evaluate_generalisation(result["best_genotype"], N_TEST_POSITIONS, TEST_RADIUS)
 
-    save_run(
-        result,
-        final_row,
-    )
+    final_result: Row = {
+        "condition": condition,
+        "seed": seed,
+        "training_fitness": result["best_fitness"],
+        "test_mean": float(np.mean(test_distances)),
+        "test_std": float(np.std(test_distances))
+    }
 
-    return final_row
+    run_dir = RESULTS_DIR / condition / f"seed_{seed}"
+    run_dir.mkdir(parents=True, exist_ok=True)
+
+    save_csv(run_dir / "history.csv", result["history"])
+    save_csv(run_dir / "final.csv", [final_result])
+    np.save(run_dir / "best_genotype.npy", result["best_genotype"])
+
+    return final_result
 
 
-# ---------------------------------------------------------------------------
-# Load saved results
-# ---------------------------------------------------------------------------
+def load_history(condition: str, seed: int) -> list[dict[str, str]]:
+    """Load one history CSV."""
 
+    path = RESULTS_DIR / condition / f"seed_{seed}" / "history.csv"
 
-def read_csv(path: Path) -> list[dict[str, str]]:
-    with path.open() as file:
+    if not path.exists():
+        return []
+
+    with open(path, encoding="utf-8") as file:
         return list(csv.DictReader(file))
 
 
-def load_all_final_results() -> list[dict]:
-    rows = []
+def load_final_results() -> list[Row]:
+    """Load completed final results."""
+
+    results: list[Row] = []
 
     for condition in (*CONDITIONS, "random"):
         for seed in FINAL_SEEDS:
-
-            path = (
-                RESULTS_DIR
-                / condition
-                / f"seed_{seed}"
-                / "final.csv"
-            )
+            path = RESULTS_DIR / condition / f"seed_{seed}" / "final.csv"
 
             if not path.exists():
                 continue
 
-            raw = read_csv(path)[0]
+            with open(path, encoding="utf-8") as file:
+                row = next(csv.DictReader(file))
 
-            rows.append({
+            results.append({
                 "condition": condition,
-                "seed": int(raw["seed"]),
-                "training_fitness": float(raw["training_fitness"]),
-                "test_mean": float(raw["test_mean"]),
-                "test_std": float(raw["test_std"]),
+                "seed": int(row["seed"]),
+                "test_mean": float(row["test_mean"])
             })
 
-    return rows
-
-
-# ---------------------------------------------------------------------------
-# Plots
-# ---------------------------------------------------------------------------
+    return results
 
 
 def plot_learning_curves() -> None:
-    plt.figure(figsize=(8, 5))
+    """Plot mean and standard deviation over runs."""
 
-    for condition in (*CONDITIONS, "random"):
-
-        histories = []
-
-        for seed in FINAL_SEEDS:
-
-            path = (
-                RESULTS_DIR
-                / condition
-                / f"seed_{seed}"
-                / "history.csv"
-            )
-
-            if not path.exists():
-                continue
-
-            rows = read_csv(path)
-
-            evaluations = np.asarray(
-                [float(row["evaluations"]) for row in rows]
-            )
-
-            best = np.asarray(
-                [float(row["best_so_far"]) for row in rows]
-            )
-
-            histories.append(best)
-
-        if not histories:
-            continue
-
-        values = np.asarray(histories)
-
-        mean = np.mean(values, axis=0)
-        std = np.std(values, axis=0)
-
-        plt.plot(
-            evaluations,
-            mean,
-            label=condition,
-        )
-
-        plt.fill_between(
-            evaluations,
-            mean - std,
-            mean + std,
-            alpha=0.2,
-        )
-
-    plt.xlabel("Fitness evaluations")
-    plt.ylabel("Best-so-far distance to target (m)")
-    plt.title("Evolutionary performance")
-    plt.legend()
-    plt.tight_layout()
-
-    plt.savefig(
-        RESULTS_DIR / "learning_curves.png",
-        dpi=300,
-    )
-
-    plt.close()
-
-
-def plot_success_rate() -> None:
     plt.figure(figsize=(8, 5))
 
     for condition in CONDITIONS:
-
-        histories = []
+        runs = []
 
         for seed in FINAL_SEEDS:
+            rows = load_history(condition, seed)
 
-            path = (
-                RESULTS_DIR
-                / condition
-                / f"seed_{seed}"
-                / "history.csv"
-            )
-
-            if not path.exists():
+            if not rows:
                 continue
 
-            rows = read_csv(path)[1:]
+            best = [float(row["best"]) for row in rows]
+            runs.append(best)
 
-            generations = np.asarray(
-                [int(float(row["generation"])) for row in rows]
-            )
-
-            success = np.asarray(
-                [float(row["success_rate"]) for row in rows]
-            )
-
-            histories.append(success)
-
-        if not histories:
+        if not runs:
             continue
 
-        values = np.asarray(histories)
+        runs_array = np.asarray(runs)
+        mean = np.mean(runs_array, axis=0)
+        std = np.std(runs_array, axis=0)
+        generations = np.arange(1, len(mean) + 1)
 
-        mean = np.mean(values, axis=0)
-        std = np.std(values, axis=0)
-
-        plt.plot(
-            generations,
-            mean,
-            label=condition,
-        )
-
-        plt.fill_between(
-            generations,
-            mean - std,
-            mean + std,
-            alpha=0.2,
-        )
+        plt.plot(generations, mean, label=condition)
+        plt.fill_between(generations, mean - std, mean + std, alpha=0.2)
 
     plt.xlabel("Generation")
-    plt.ylabel("Offspring success rate")
-    plt.title("Mutation success rate")
+    plt.ylabel("Best fitness")
+    plt.title("Evolutionary performance")
     plt.legend()
     plt.tight_layout()
+    plt.savefig(RESULTS_DIR / "learning_curves.png", dpi=300)
+    plt.close()
 
-    plt.savefig(
-        RESULTS_DIR / "success_rate.png",
-        dpi=300,
-    )
 
+def plot_changed_weights() -> None:
+    """Plot average number of changed weights."""
+
+    plt.figure(figsize=(8, 5))
+
+    for condition in CONDITIONS:
+        runs = []
+
+        for seed in FINAL_SEEDS:
+            rows = load_history(condition, seed)
+
+            if not rows:
+                continue
+
+            values = [float(row["mean_changed_weights"]) for row in rows]
+            runs.append(values)
+
+        if not runs:
+            continue
+
+        runs_array = np.asarray(runs)
+        mean = np.mean(runs_array, axis=0)
+        generations = np.arange(1, len(mean) + 1)
+
+        plt.plot(generations, mean, label=condition)
+
+    plt.xlabel("Generation")
+    plt.ylabel("Mean changed weights")
+    plt.title("Number of changed weights")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(RESULTS_DIR / "changed_weights.png", dpi=300)
+    plt.close()
+
+
+def plot_improvement() -> None:
+    """Plot average improvement of successful mutations."""
+
+    plt.figure(figsize=(8, 5))
+
+    for condition in CONDITIONS:
+        runs = []
+
+        for seed in FINAL_SEEDS:
+            rows = load_history(condition, seed)
+
+            if not rows:
+                continue
+
+            values = [float(row["mean_improvement"]) for row in rows]
+            runs.append(values)
+
+        if not runs:
+            continue
+
+        runs_array = np.asarray(runs)
+        mean = np.mean(runs_array, axis=0)
+        generations = np.arange(1, len(mean) + 1)
+
+        plt.plot(generations, mean, label=condition)
+
+    plt.xlabel("Generation")
+    plt.ylabel("Mean fitness improvement")
+    plt.title("Magnitude of successful improvements")
+    plt.legend()
+    plt.tight_layout()
+    plt.savefig(RESULTS_DIR / "improvement.png", dpi=300)
     plt.close()
 
 
 def plot_final_scores() -> None:
-    rows = load_all_final_results()
+    """Boxplot of final generalisation performance."""
 
+    results = load_final_results()
+    labels = []
     values = []
 
-    labels = []
-
     for condition in (*CONDITIONS, "random"):
+        scores = [row["test_mean"] for row in results if row["condition"] == condition]
 
-        condition_values = [
-            row["test_mean"]
-            for row in rows
-            if row["condition"] == condition
-        ]
-
-        if condition_values:
-            values.append(condition_values)
+        if scores:
             labels.append(condition)
+            values.append(scores)
+
+    if not values:
+        return
 
     plt.figure(figsize=(7, 5))
-
-    plt.boxplot(
-        values,
-        tick_labels=labels,
-    )
-
-    plt.ylabel("Mean final distance over 20 positions (m)")
+    plt.boxplot(values, tick_labels=labels)
+    plt.ylabel("Mean final distance (m)")
     plt.title("Final controller performance")
     plt.tight_layout()
-
-    plt.savefig(
-        RESULTS_DIR / "final_scores.png",
-        dpi=300,
-    )
-
+    plt.savefig(RESULTS_DIR / "final_scores.png", dpi=300)
     plt.close()
 
 
-# ---------------------------------------------------------------------------
-# Descriptive statistics
-# ---------------------------------------------------------------------------
+def print_results() -> None:
+    """Print final results."""
 
+    results = load_final_results()
 
-def print_summary() -> None:
-    rows = load_all_final_results()
-
-    print("\nFINAL GENERALISATION RESULTS")
+    print()
+    print("FINAL RESULTS")
     print("=" * 60)
 
     for condition in (*CONDITIONS, "random"):
-
-        scores = np.asarray([
-            row["test_mean"]
-            for row in rows
-            if row["condition"] == condition
-        ])
+        scores = np.asarray([row["test_mean"] for row in results if row["condition"] == condition])
 
         if len(scores) == 0:
             continue
 
         print(
-            f"{condition:12s} "
-            f"n={len(scores):2d} | "
-            f"mean={np.mean(scores):.4f} | "
-            f"std={np.std(scores, ddof=1):.4f} | "
-            f"median={np.median(scores):.4f}"
+            f"{condition:12s} | "
+            f"mean = {np.mean(scores):.4f} | "
+            f"std = {np.std(scores):.4f}"
         )
-
-
-# ---------------------------------------------------------------------------
-# Inferential statistics
-# ---------------------------------------------------------------------------
-
-
-def statistical_tests() -> None:
-    try:
-        from scipy.stats import friedmanchisquare, wilcoxon
-    except ImportError:
-        print(
-            "\nSciPy not installed: statistical tests skipped."
-        )
-        return
-
-    rows = load_all_final_results()
-
-    scores = {}
-
-    for condition in CONDITIONS:
-
-        condition_rows = {
-            row["seed"]: row["test_mean"]
-            for row in rows
-            if row["condition"] == condition
-        }
-
-        scores[condition] = condition_rows
-
-    common_seeds = sorted(
-        set.intersection(
-            *[
-                set(scores[c].keys())
-                for c in CONDITIONS
-            ]
-        )
-    )
-
-    if len(common_seeds) < 5:
-        print(
-            "\nNot enough complete paired runs "
-            "for statistical testing."
-        )
-        return
-
-    arrays = {
-        condition: np.asarray([
-            scores[condition][seed]
-            for seed in common_seeds
-        ])
-        for condition in CONDITIONS
-    }
-
-    statistic, p_value = friedmanchisquare(
-        arrays["sparse"],
-        arrays["intermediate"],
-        arrays["dense"],
-    )
-
-    print("\nFRIEDMAN TEST")
-    print("=" * 60)
-    print(f"chi-square = {statistic:.6f}")
-    print(f"p          = {p_value:.6g}")
-
-    # Pre-specified pairwise comparisons.
-    comparisons = [
-        ("sparse", "intermediate"),
-        ("sparse", "dense"),
-        ("intermediate", "dense"),
-    ]
-
-    tests = []
-
-    for a, b in comparisons:
-
-        statistic, p = wilcoxon(
-            arrays[a],
-            arrays[b],
-            alternative="two-sided",
-        )
-
-        tests.append({
-            "comparison": f"{a} vs {b}",
-            "statistic": statistic,
-            "p_raw": p,
-        })
-
-    # Holm correction.
-    order = np.argsort(
-        [test["p_raw"] for test in tests]
-    )
-
-    m = len(tests)
-
-    adjusted = np.empty(m)
-
-    running_max = 0.0
-
-    for rank, index in enumerate(order):
-
-        p_raw = tests[index]["p_raw"]
-
-        p_adjusted = min(
-            1.0,
-            (m - rank) * p_raw,
-        )
-
-        running_max = max(
-            running_max,
-            p_adjusted,
-        )
-
-        adjusted[index] = running_max
-
-    print("\nPAIRWISE WILCOXON + HOLM")
-    print("=" * 60)
-
-    for test, p_adjusted in zip(
-        tests,
-        adjusted,
-        strict=True,
-    ):
-        print(
-            f"{test['comparison']:28s} "
-            f"W={test['statistic']:.3f} | "
-            f"p={test['p_raw']:.6g} | "
-            f"Holm={p_adjusted:.6g}"
-        )
-
-
-# ---------------------------------------------------------------------------
-# Experimental design information
-# ---------------------------------------------------------------------------
 
 
 def print_design() -> None:
+    """Show NN and mutation parameters."""
+
     evaluator = Evaluator()
 
-    print("\nEXPERIMENTAL DESIGN")
+    print()
+    print("EXPERIMENTAL DESIGN")
     print("=" * 60)
-
-    print(f"NN inputs          : {evaluator.input_size}")
-    print(f"NN outputs         : {evaluator.output_size}")
-    print(f"Total weights (n)  : {evaluator.num_weights}")
-    print(f"Evaluation budget  : {evaluation_budget()}")
-
-    print("\nMutation conditions")
+    print(f"NN inputs  : {evaluator.input_size}")
+    print(f"NN outputs : {evaluator.output_size}")
+    print(f"Weights    : {evaluator.num_weights}")
+    print()
 
     for condition in CONDITIONS:
-
-        p, sigma = mutation_parameters(
-            condition,
-            evaluator.num_weights,
-        )
-
-        expected_mutations = evaluator.num_weights * p
-
-        expected_squared_norm = (
-            evaluator.num_weights
-            * p
-            * sigma**2
-        )
+        p, sigma = mutation_parameters(condition, evaluator.num_weights)
+        expected_changed = evaluator.num_weights * p
 
         print(
-            f"{condition:12s} "
-            f"p={p:.6f} | "
-            f"sigma={sigma:.6f} | "
-            f"E[K]={expected_mutations:.2f} | "
-            f"E[||dw||²]={expected_squared_norm:.6f}"
+            f"{condition:12s} | "
+            f"p = {p:.5f} | "
+            f"sigma = {sigma:.5f} | "
+            f"E[changed] = {expected_changed:.1f}"
         )
 
 
-# ---------------------------------------------------------------------------
-# Main
-# ---------------------------------------------------------------------------
+def analyse() -> None:
+    """Create all result figures."""
+
+    plot_learning_curves()
+    plot_changed_weights()
+    plot_improvement()
+    plot_final_scores()
+    print_results()
 
 
 def main() -> None:
     parser = argparse.ArgumentParser()
-
-    parser.add_argument(
-        "--condition",
-        choices=(*CONDITIONS, "random"),
-    )
-
-    parser.add_argument(
-        "--seed",
-        type=int,
-    )
-
-    parser.add_argument(
-        "--all",
-        action="store_true",
-    )
-
-    parser.add_argument(
-        "--analyse",
-        action="store_true",
-    )
-
-    parser.add_argument(
-        "--design",
-        action="store_true",
-    )
+    parser.add_argument("--condition", choices=(*CONDITIONS, "random"))
+    parser.add_argument("--seed", type=int)
+    parser.add_argument("--all", action="store_true")
+    parser.add_argument("--analyse", action="store_true")
+    parser.add_argument("--design", action="store_true")
 
     args = parser.parse_args()
 
-    ensure_results_dir()
+    RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
     if args.design:
         print_design()
-        return
 
-    if args.all:
-
+    elif args.all:
         for condition in (*CONDITIONS, "random"):
-
             for seed in FINAL_SEEDS:
+                run_experiment(condition, seed)
 
-                print("\n" + "=" * 60)
-                print(
-                    f"RUNNING {condition.upper()} "
-                    f"| SEED {seed}"
-                )
-                print("=" * 60)
+        analyse()
 
-                run_one(
-                    condition,
-                    seed,
-                )
+    elif args.analyse:
+        analyse()
 
-        plot_learning_curves()
-        plot_success_rate()
-        plot_final_scores()
+    elif args.condition is not None and args.seed is not None:
+        run_experiment(args.condition, args.seed)
 
-        print_summary()
-        statistical_tests()
-
-        return
-
-    if args.analyse:
-        plot_learning_curves()
-        plot_success_rate()
-        plot_final_scores()
-
-        print_summary()
-        statistical_tests()
-
-        return
-
-    if args.condition is None or args.seed is None:
-        parser.error(
-            "Use --condition CONDITION --seed SEED, "
-            "--all, --analyse, or --design."
-        )
-
-    row = run_one(
-        args.condition,
-        args.seed,
-    )
-
-    print("\nFINAL RESULT")
-    print(row)
+    else:
+        print("Specify --design, --all, --analyse, or --condition CONDITION --seed SEED.")
 
 
 if __name__ == "__main__":
