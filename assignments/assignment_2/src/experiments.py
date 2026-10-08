@@ -20,7 +20,7 @@ from EA import (
 
 # This is the ONLY thing that changes between EA conditions
 MUTATION_STRENGTHS = [0.05, 0.20, 0.50]
-SEEDS = list(range(5))
+SEEDS = list(range(10))
 
 
 RESULTS_DIR = (
