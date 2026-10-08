@@ -45,6 +45,54 @@ type HistoryRow = dict[str, int | float]
 
 
 # --------------------------------------------------------------------------- #
+# CONTROLLER
+# --------------------------------------------------------------------------- #
+
+def get_inputs(data: mj.MjData) -> npt.NDArray[np.float64]:
+    """Controller inputs: hinge angles, rhythm and target direction."""
+
+    hinge_angles = data.qpos[7:]
+
+    # 1 Hz clock to drive rhythmic movement
+    rhythm = [
+        np.sin(2 * np.pi * data.time),
+        np.cos(2 * np.pi * data.time),
+    ]
+
+    # Target vector in the robot's own frame
+    w, x, y, z = data.qpos[3:7]
+    yaw = np.arctan2(
+        2 * (w * z + x * y),
+        1 - 2 * (y * y + z * z),
+    )
+
+    dx = template.TARGET_POSITION[0] - data.qpos[0]
+    dy = template.TARGET_POSITION[1] - data.qpos[1]
+
+    target = [
+        np.cos(yaw) * dx + np.sin(yaw) * dy,  # ahead
+        -np.sin(yaw) * dx + np.cos(yaw) * dy,  # left
+    ]
+
+    return np.concatenate([hinge_angles, rhythm, target])
+
+
+def nn_controller(
+    model: mj.MjModel,
+    data: mj.MjData,
+    weights: list[npt.NDArray[np.float64]],
+) -> npt.NDArray[np.float64]:
+    """Same network as the template, but with get_inputs()."""
+
+    w1, w2 = weights
+
+    layer1 = np.tanh(get_inputs(data) @ w1)
+    outputs = np.tanh(layer1 @ w2)
+
+    return outputs * (np.pi / 2)
+
+
+# --------------------------------------------------------------------------- #
 # GENOTYPE -> NEURAL NETWORK
 # --------------------------------------------------------------------------- #
 
@@ -85,7 +133,7 @@ def get_num_weights() -> int:
     mj.mj_resetData(model, data)
     mj.mj_forward(model, data)
 
-    input_size = len(data.qpos)
+    input_size = len(get_inputs(data))
     output_size = int(model.nu)
 
     return (
@@ -101,8 +149,9 @@ def get_num_weights() -> int:
 def evaluate_genotype(genotype: list[float]) -> float:
     """Evaluate one evolved controller.
 
-    This follows run_experiment() from the template, except that the neural
-    network weights come from the genotype instead of make_random_weights().
+    This follows run_experiment() from the template, except that the weights
+    come from the genotype instead of make_random_weights()and the inputs come
+    from get_inputs() instead of data.qpos. 
     """
 
     mj.set_mjcb_control(None)
@@ -124,12 +173,11 @@ def evaluate_genotype(genotype: list[float]) -> float:
     mj.mj_resetData(model, data)
     mj.mj_forward(model, data)
 
-    # Same network dimensions as the template
-    input_size = len(data.qpos)
+    # Network dimensions from our own inputs
+    input_size = len(get_inputs(data))
     output_size = int(model.nu)
 
-    # The only difference:
-    # use evolved weights instead of random weights
+    # Evolved weights instead of random weights
     weights = genotype_to_weights(
         genotype,
         input_size,
@@ -140,7 +188,7 @@ def evaluate_genotype(genotype: list[float]) -> float:
         m: mj.MjModel,
         d: mj.MjData,
     ) -> None:
-        actions = template.nn_controller(m, d, weights)
+        actions = nn_controller(m, d, weights)
         d.ctrl[:] = actions
 
     initial_position = template.get_core_position(data)
