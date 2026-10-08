@@ -36,10 +36,13 @@ import A2_template_2026 as template
 # EA SETTINGS
 # --------------------------------------------------------------------------- #
 
-POP_SIZE = 20
-GENERATIONS = 130
+POP_SIZE = 30
+GENERATIONS = 150
 TOURNAMENT_SIZE = 2
 INIT_STD = 0.5
+PLATEAU_SIZE = 30
+MIN_GENERATIONS = 40
+MIN_IMPROVEMENT = 0.001
 
 type HistoryRow = dict[str, int | float]
 
@@ -413,22 +416,23 @@ def run_ea(
         db_handling="delete",
     )
 
+    best_reference = float(history[0]["best"])
+    last_improvement = 0
+
     for generation in range(1, generations + 1):
-
         ea.step()
+        ea.fetch_population(only_alive=True, requires_eval=False)
 
-        # Reload population from database after ARIEL commits it
-        ea.fetch_population(
-            only_alive=True,
-            requires_eval=False,
-        )
+        stats = population_stats(ea.population)
+        history.append({"generation": generation, **stats})
 
-        history.append(
-            {
-                "generation": generation,
-                **population_stats(ea.population),
-            }
-        )
+        if stats["best"] < best_reference - MIN_IMPROVEMENT:
+            best_reference = stats["best"]
+            last_improvement = generation
+
+        if generation >= MIN_GENERATIONS and generation - last_improvement >= PLATEAU_SIZE:
+            print(f"Plateau reached at generation {generation}, best={stats['best']:.4f}")
+            break
 
     best = ea.population.alive.evaluated.best(
         sort="min",
@@ -448,27 +452,26 @@ def run_ea(
 # RANDOM-SEARCH BASELINE
 # --------------------------------------------------------------------------- #
 
+
 def run_random_search(
     seed: int,
     population_size: int = POP_SIZE,
     generations: int = GENERATIONS,
 ) -> list[HistoryRow]:
-    """Random-search baseline using the same evaluation budget as the EA."""
+    """Random-search baseline with plateau-based stopping."""
 
     rng = np.random.default_rng(seed)
-
     num_weights = get_num_weights()
 
     best_so_far = np.inf
-
+    best_reference = np.inf
+    last_improvement = 0
     history: list[HistoryRow] = []
 
     for generation in range(generations + 1):
-
         generation_fitness: list[float] = []
 
         for _ in range(population_size):
-
             genotype = rng.normal(
                 loc=0.0,
                 scale=INIT_STD,
@@ -476,22 +479,21 @@ def run_random_search(
             ).tolist()
 
             fitness = evaluate_genotype(genotype)
-
             generation_fitness.append(fitness)
+            best_so_far = min(best_so_far, fitness)
 
-            best_so_far = min(
-                best_so_far,
-                fitness,
-            )
+        history.append({
+            "generation": generation,
+            "best": float(best_so_far),
+            "mean": float(np.mean(generation_fitness)),
+        })
 
-        history.append(
-            {
-                "generation": generation,
-                "best": float(best_so_far),
-                "mean": float(
-                    np.mean(generation_fitness)
-                ),
-            }
-        )
+        if best_so_far < best_reference - MIN_IMPROVEMENT:
+            best_reference = best_so_far
+            last_improvement = generation
+
+        if generation >= MIN_GENERATIONS and generation - last_improvement >= PLATEAU_SIZE:
+            print(f"Random search plateau at generation {generation}, best={best_so_far:.4f}")
+            break
 
     return history
