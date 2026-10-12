@@ -132,24 +132,6 @@ def build_robot() -> CoreModule:
 HIDDEN_SIZE: int = 6
 
 
-def get_inputs(data: mj.MjData) -> npt.NDArray[np.float64]:
-    """Build the controller input vector: hinge angles, rhythm, target direction."""
-    hinge_angles = data.qpos[7:]
-    rhythm = [np.sin(2 * np.pi * data.time), np.cos(2 * np.pi * data.time)]
-
-    # target vector in the robot's frame
-    w, x, y, z = data.qpos[3:7]
-    yaw = np.arctan2(2 * (w * z + x * y), 1 - 2 * (y * y + z * z))
-    dx = TARGET_POSITION[0] - data.qpos[0]
-    dy = TARGET_POSITION[1] - data.qpos[1]
-    target = [
-        np.cos(yaw) * dx + np.sin(yaw) * dy,    # how far ahead
-        -np.sin(yaw) * dx + np.cos(yaw) * dy,   # how far to the left
-    ]
-
-    return np.concatenate([hinge_angles, rhythm, target])
-
-
 def nn_controller(
     model: mj.MjModel,
     data: mj.MjData,
@@ -179,7 +161,9 @@ def nn_controller(
     w1, w2 = weights
 
     # --- INPUTS ---------------------------------------------------------- #
-    inputs = get_inputs(data)
+    # Bare qpos - the simplest choice, not necessarily a good one. See
+    # YOUR JOB below.
+    inputs = data.qpos
 
     # --- FORWARD PASS ----------------------------------------------------- #
     layer1 = np.tanh(inputs @ w1)
@@ -206,19 +190,6 @@ def make_random_weights(
         RNG.normal(scale=0.5, size=(input_size, HIDDEN_SIZE)),
         RNG.normal(scale=0.5, size=(HIDDEN_SIZE, output_size)),
     ]
-
-
-def genotype_to_weights(
-    genotype: npt.ArrayLike,
-    input_size: int,
-    output_size: int,
-) -> list[npt.NDArray[np.float64]]:
-    """Cut a flat genotype into [w1, w2]: first input_size * HIDDEN_SIZE genes are w1."""
-    genotype = np.asarray(genotype, dtype=np.float64)
-    split = input_size * HIDDEN_SIZE
-    w1 = genotype[:split].reshape(input_size, HIDDEN_SIZE)
-    w2 = genotype[split:].reshape(HIDDEN_SIZE, output_size)
-    return [w1, w2]
 
 
 # ============================================================================ #
@@ -264,12 +235,7 @@ def fitness_function(
 # ============================================================================ #
 
 
-def run_experiment(
-    mode: ViewerTypes = MODE,
-    genotype: npt.ArrayLike | None = None,
-    spawn_pos: list[float] = SPAWN_POS,
-    verbose: bool = True,
-) -> float:
+def run_experiment(mode: ViewerTypes = MODE) -> float:
     """Set up the world, run one simulation, and return the fitness.
 
     This is the function your EA calls once per individual, with `mode` set
@@ -289,7 +255,7 @@ def run_experiment(
 
     world.spawn(
         robot.spec,
-        position=spawn_pos,
+        position=SPAWN_POS,
         correct_collision_with_floor=True,
     )
 
@@ -304,14 +270,10 @@ def run_experiment(
     # --- Wire up the controller -------------------------------------------- #
     # Sizes are read from the compiled model, never hardcoded - they depend on
     # the body you chose in build_robot().
-
-    input_size = len(get_inputs(data))
+    input_size = len(data.qpos)
     output_size = model.nu
 
-    if genotype is None:
-        weights = make_random_weights(input_size, output_size)
-    else:
-        weights = genotype_to_weights(genotype, input_size, output_size)
+    weights = make_random_weights(input_size, output_size)
 
     def control_callback(m: mj.MjModel, d: mj.MjData) -> None:
         """Compute and apply actions; MuJoCo calls this every physics step."""
@@ -364,11 +326,10 @@ def run_experiment(
     final_position = get_core_position(data)
     fitness = fitness_function(initial_position, final_position)
 
-    if verbose:
-        console.log(f"start  : {np.round(initial_position, 3)}")
-        console.log(f"end    : {np.round(final_position, 3)}")
-        console.log(f"target : {np.round(TARGET_POSITION, 3)}")
-        console.log(f"fitness: {fitness:.4f}   (lower is better)")
+    console.log(f"start  : {np.round(initial_position, 3)}")
+    console.log(f"end    : {np.round(final_position, 3)}")
+    console.log(f"target : {np.round(TARGET_POSITION, 3)}")
+    console.log(f"fitness: {fitness:.4f}   (lower is better)")
 
     return fitness
 
@@ -387,13 +348,13 @@ def main() -> None:
     model = world.spec.compile()
     data = mj.MjData(model)
 
-    input_size = len(get_inputs(data))
+    input_size = len(data.qpos)
     output_size = model.nu
     num_weights = (
         input_size * HIDDEN_SIZE
         + HIDDEN_SIZE * output_size
     )
-    console.log(f"controller inputs (get_inputs)     : {input_size}")
+    console.log(f"controller inputs (len(data.qpos)) : {input_size}")
     console.log(f"controller outputs (model.nu)      : {output_size}")
     console.log(f"genotype length (total weights)    : {num_weights}")
 

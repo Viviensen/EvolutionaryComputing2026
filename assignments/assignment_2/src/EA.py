@@ -1,0 +1,401 @@
+"""Simple evolutionary algorithm for Assignment 2.
+
+The experiment investigates one aspect only:
+the strength (sigma) of Gaussian mutation.
+
+The simulation itself follows A2_template_2026.py as closely as possible.
+"""
+
+
+import random
+import sys
+from pathlib import Path
+from typing import cast
+
+import mujoco as mj
+import numpy as np
+import numpy.typing as npt
+
+from ariel.ec import EA, EAOperation, Individual, Population, set_seed
+from ariel.utils.runners import simple_runner
+
+
+# --------------------------------------------------------------------------- #
+# IMPORT THE UNCHANGED TEMPLATE
+# --------------------------------------------------------------------------- #
+
+ASSIGNMENT_DIR = Path(__file__).resolve().parents[1]
+
+if str(ASSIGNMENT_DIR) not in sys.path:
+    sys.path.insert(0, str(ASSIGNMENT_DIR))
+
+import A2_template_2026 as template
+
+
+
+
+POP_SIZE = 30
+GENERATIONS = 130
+TOURNAMENT_SIZE = 2
+INIT_STD = 0.5
+PLATEAU_SIZE = 30
+MIN_GENERATIONS = 40
+MIN_IMPROVEMENT = 0.001
+
+type HistoryRow = dict[str, int | float]
+
+
+
+
+def get_inputs(data: mj.MjData) -> npt.NDArray[np.float64]:
+    """
+    This function is the same as template.get_inputs(), 
+    except that it returns a 1D array instead of a 2D array.
+    """
+
+    hinge_angles = data.qpos[7:]
+
+    # 1 Hz clock to drive rhythmic movement
+    rhythm = [
+        np.sin(2 * np.pi * data.time),
+        np.cos(2 * np.pi * data.time),
+    ]
+
+    # Target vector in the robot's own frame
+    w, x, y, z = data.qpos[3:7]
+    yaw = np.arctan2(
+        2 * (w * z + x * y),
+        1 - 2 * (y * y + z * z),
+    )
+
+    dx = template.TARGET_POSITION[0] - data.qpos[0]
+    dy = template.TARGET_POSITION[1] - data.qpos[1]
+
+    target = [
+        np.cos(yaw) * dx + np.sin(yaw) * dy,  # ahead
+        -np.sin(yaw) * dx + np.cos(yaw) * dy,  # left
+    ]
+
+    return np.concatenate([hinge_angles, rhythm, target])
+
+
+def nn_controller(
+    model: mj.MjModel,
+    data: mj.MjData,
+    weights: list[npt.NDArray[np.float64]],
+) -> npt.NDArray[np.float64]:
+    """
+    Same network as the template, but with get_inputs().
+    """
+
+    w1, w2 = weights
+
+    layer1 = np.tanh(get_inputs(data) @ w1)
+    outputs = np.tanh(layer1 @ w2)
+
+    return outputs * (np.pi / 2)
+
+
+# --------------------------------------------------------------------------- #
+# GENOTYPE -> NEURAL NETWORK
+# --------------------------------------------------------------------------- #
+
+def genotype_to_weights(
+    genotype: list[float],
+    input_size: int,
+    output_size: int,
+) -> list[npt.NDArray[np.float64]]:
+    """
+    Convert a flat genotype into the two NN weight matrices."""
+
+    genes = np.asarray(genotype, dtype=np.float64)
+
+    split = input_size * template.HIDDEN_SIZE
+
+    w1 = genes[:split].reshape(input_size, template.HIDDEN_SIZE)
+    w2 = genes[split:].reshape(template.HIDDEN_SIZE, output_size)
+
+    return [w1, w2]
+
+
+def get_num_weights() -> int:
+    """
+    Determine the required genotype length.
+    """
+
+    mj.set_mjcb_control(None)
+
+    world = template.build_world()
+    robot = template.build_robot()
+
+    world.spawn(
+        robot.spec,
+        position=template.SPAWN_POS,
+        correct_collision_with_floor=True
+    )
+
+    model = world.spec.compile()
+    data = mj.MjData(model)
+
+    mj.mj_resetData(model, data)
+    mj.mj_forward(model, data)
+
+    input_size = len(get_inputs(data))
+    output_size = int(model.nu)
+
+    return (
+        input_size * template.HIDDEN_SIZE
+        + template.HIDDEN_SIZE * output_size
+    )
+
+
+
+
+def evaluate_genotype(genotype: list[float]) -> float:
+    """
+    Evaluate one evolved controller, given run_experiment() from the template. 
+    The weights  come from the genotype instead of m
+    ake_random_weights()and the inputs come from get_inputs() instead of data.qpos. 
+    """
+
+    mj.set_mjcb_control(None)
+
+    # Same world and robot as the template
+    world = template.build_world()
+    robot = template.build_robot()
+
+    world.spawn(
+        robot.spec,
+        position=template.SPAWN_POS,
+        correct_collision_with_floor=True
+    )
+
+    # Same MuJoCo setup as the template
+    model = world.spec.compile()
+    data = mj.MjData(model)
+
+    mj.mj_resetData(model, data)
+    mj.mj_forward(model, data)
+
+    # Network dimensions from our own inputs
+    input_size = len(get_inputs(data))
+    output_size = int(model.nu)
+
+    # Evolved weights instead of random weights
+    weights = genotype_to_weights( genotype, input_size, output_size)
+
+    def control_callback(m: mj.MjModel, d: mj.MjData,) -> None:
+        actions = nn_controller(m, d, weights)
+        d.ctrl[:] = actions
+
+    initial_position = template.get_core_position(data)
+
+    try:
+        mj.set_mjcb_control(control_callback)
+
+        simple_runner(model, data, duration=template.SIM_DURATION)
+
+    finally:
+        mj.set_mjcb_control(None)
+
+    final_position = template.get_core_position(data)
+
+    return template.fitness_function(initial_position, final_position)
+
+
+
+def make_individual(rng: np.random.Generator, num_weights: int,) -> Individual:
+    """
+    Create one random neural-network genotype.
+    """
+
+    individual = Individual()
+
+    individual.genotype = rng.normal(
+        loc=0.0,
+        scale=INIT_STD,
+        size=num_weights,
+    ).tolist()
+
+    return individual
+
+def evaluate_population(population: Population) -> Population:
+    """
+    Evaluate all individuals that still require evaluation.
+    """
+    for individual in population.unevaluated:
+        genotype = cast(list[float], individual.genotype)
+        individual.fitness = evaluate_genotype(genotype)
+    return population
+
+
+def reproduce(population: Population, sigma: float, offspring_count: int,
+    tournament_size: int, rng: np.random.Generator) -> Population:
+    """
+    Tournament selection followed by Gaussian mutation.
+    """
+
+    parents = population.alive.evaluated.to_list()
+
+    for _ in range(offspring_count):
+
+        competitors = [parents[int(rng.integers(len(parents)))] for _ in range(tournament_size)]
+
+        # Lower fitness = better
+        parent = min(competitors, key=lambda individual: individual.fitness)
+        parent_genotype = np.asarray(cast(list[float], parent.genotype), dtype=np.float64)
+        mutation = rng.normal(loc=0.0, scale=sigma, size=len(parent_genotype))
+
+        child_genotype = parent_genotype + mutation
+        child = Individual()
+        child.genotype = child_genotype.tolist()
+        population.append(child)
+
+    return population
+
+
+def survivor_selection(population: Population, population_size: int) -> Population:
+    """
+    Keep the best individuals after parents and offspring are combined.
+    """
+
+    ranked = population.alive.evaluated.sort(sort="min",attribute="fitness")
+
+    for individual in ranked[population_size:]:
+        individual.alive = False
+
+    return population
+
+
+
+
+def population_stats(population: Population) -> dict[str, float]:
+    """
+    Return best and mean fitness of the living population.
+    """
+    fitness = np.asarray([individual.fitness for individual in population.alive.evaluated], dtype=np.float64)
+
+    return {
+        "best": float(np.min(fitness)),
+        "mean": float(np.mean(fitness))
+    }
+
+
+
+
+def run_ea(seed: int, sigma: float, population_size: int = POP_SIZE,
+    generations: int = GENERATIONS, tournament_size: int = TOURNAMENT_SIZE) -> tuple[list[HistoryRow], list[float]]:
+    """
+    Run the EA once for one seed and one mutation strength.
+    """
+
+    random.seed(seed)
+    set_seed(seed)
+    rng = np.random.default_rng(seed)
+    num_weights = get_num_weights()
+
+    initial_population = Population([make_individual(rng, num_weights) for _ in range(population_size)])
+    initial_population = evaluate_population(initial_population)
+
+    history: list[HistoryRow] = [
+        {
+            "generation": 0,
+            **population_stats(initial_population)
+        }
+    ]
+
+    sigma_name = str(sigma).replace(".", "_")
+    database = (Path("__data__") / "assignment_2" / f"sigma_{sigma_name}_seed_{seed}.db")
+
+    operations = [
+        EAOperation(
+            reproduce,
+            sigma=sigma,
+            offspring_count=population_size,
+            tournament_size=tournament_size,
+            rng=rng
+        ),
+        EAOperation(evaluate_population),
+        EAOperation(survivor_selection, population_size=population_size)
+    ]
+
+    ea = EA(
+        initial_population,
+        operations=operations,
+        num_steps=generations,
+        is_maximisation=False,
+        quiet=True,
+        db_file_path=database,
+        db_handling="delete"
+    )
+
+    best_reference = float(history[0]["best"])
+    last_improvement = 0
+
+    for generation in range(1, generations + 1):
+        ea.step()
+        ea.fetch_population(only_alive=True, requires_eval=False)
+
+        stats = population_stats(ea.population)
+        history.append({"generation": generation, **stats})
+
+        if stats["best"] < best_reference - MIN_IMPROVEMENT:
+            best_reference = stats["best"]
+            last_improvement = generation
+
+        if generation >= MIN_GENERATIONS and generation - last_improvement >= PLATEAU_SIZE:
+            print(f"Plateau reached at generation {generation}, best={stats['best']:.4f}")
+            break
+
+    best = ea.population.alive.evaluated.best(sort="min", attribute="fitness", n=1)[0]
+    best_genotype = [float(gene)for gene in cast(list[float], best.genotype)]
+
+    return history, best_genotype
+
+
+# --------------------------------------------------------------------------- #
+
+
+
+def run_random_search(seed: int, population_size: int = POP_SIZE, generations: int = GENERATIONS) -> list[HistoryRow]:
+    """
+    Random-search baseline with plateau-based stopping.
+    """
+
+    rng = np.random.default_rng(seed)
+    num_weights = get_num_weights()
+
+    best_so_far = np.inf
+    best_reference = np.inf
+    last_improvement = 0
+    history: list[HistoryRow] = []
+
+    for generation in range(generations + 1):
+        generation_fitness: list[float] = []
+
+        for _ in range(population_size):
+            genotype = rng.normal(
+                loc=0.0,
+                scale=INIT_STD,
+                size=num_weights
+            ).tolist()
+
+            fitness = evaluate_genotype(genotype)
+            generation_fitness.append(fitness)
+            best_so_far = min(best_so_far, fitness)
+
+        history.append({
+            "generation": generation,
+            "best": float(best_so_far),
+            "mean": float(np.mean(generation_fitness))
+        })
+
+        if best_so_far < best_reference - MIN_IMPROVEMENT:
+            best_reference = best_so_far
+            last_improvement = generation
+
+        if generation >= MIN_GENERATIONS and generation - last_improvement >= PLATEAU_SIZE:
+            print(f"Random search plateau at generation {generation}, best={best_so_far:.4f}")
+            break
+
+    return history
