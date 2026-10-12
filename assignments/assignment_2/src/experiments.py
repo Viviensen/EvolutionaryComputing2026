@@ -1,15 +1,7 @@
-
-"""Run one experimental configuration across multiple independent seeds."""
-
 import argparse
 from pathlib import Path
-
 import pandas as pd
-
 from EA import GENERATIONS, POP_SIZE, HistoryRow, run_ea, run_random_search
-
-
-
 
 MUTATION_STRENGTHS = [0.05, 0.20, 0.50]
 N_SEEDS = 10
@@ -17,8 +9,6 @@ RESULTS_DIR = Path("__data__") / "assignment_2" / "results_r2"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 type ResultRow = dict[str, str | int | float]
-
-
 
 def add_history(rows: list[ResultRow], history: list[HistoryRow], method: str, seed: int) -> None:
     """
@@ -82,7 +72,7 @@ def main() -> None:
     parser.add_argument("condition",choices=["0.05", "0.20", "0.50", "random"])
     parser.add_argument("--start-seed", type=int, default=0)
     parser.add_argument("--num-seeds", type=int, default=N_SEEDS)
-    
+
     args = parser.parse_args()
 
     if args.num_seeds < 1:

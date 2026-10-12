@@ -1,12 +1,3 @@
-"""Simple evolutionary algorithm for Assignment 2.
-
-The experiment investigates one aspect only:
-the strength (sigma) of Gaussian mutation.
-
-The simulation itself follows A2_template_2026.py as closely as possible.
-"""
-
-
 import random
 import sys
 from pathlib import Path
@@ -19,16 +10,9 @@ import numpy.typing as npt
 from ariel.ec import EA, EAOperation, Individual, Population, set_seed
 from ariel.utils.runners import simple_runner
 
-
-# --------------------------------------------------------------------------- #
-# IMPORT THE UNCHANGED TEMPLATE
-# --------------------------------------------------------------------------- #
-
 ASSIGNMENT_DIR = Path(__file__).resolve().parents[1]
-
 if str(ASSIGNMENT_DIR) not in sys.path:
     sys.path.insert(0, str(ASSIGNMENT_DIR))
-
 import A2_template_2026 as template
 
 
@@ -43,7 +27,6 @@ MIN_GENERATIONS = 40
 MIN_IMPROVEMENT = 0.001
 
 type HistoryRow = dict[str, int | float]
-
 
 
 
@@ -95,23 +78,12 @@ def nn_controller(
 
     return outputs * (np.pi / 2)
 
-
-# --------------------------------------------------------------------------- #
-# GENOTYPE -> NEURAL NETWORK
-# --------------------------------------------------------------------------- #
-
-def genotype_to_weights(
-    genotype: list[float],
-    input_size: int,
-    output_size: int,
-) -> list[npt.NDArray[np.float64]]:
+def genotype_to_weights(genotype: list[float], input_size: int, output_size: int) -> list[npt.NDArray[np.float64]]:
     """
     Convert a flat genotype into the two NN weight matrices."""
 
     genes = np.asarray(genotype, dtype=np.float64)
-
     split = input_size * template.HIDDEN_SIZE
-
     w1 = genes[:split].reshape(input_size, template.HIDDEN_SIZE)
     w2 = genes[split:].reshape(template.HIDDEN_SIZE, output_size)
 
@@ -204,18 +176,14 @@ def evaluate_genotype(genotype: list[float]) -> float:
 
 
 
-def make_individual(rng: np.random.Generator, num_weights: int,) -> Individual:
+def make_individual(rng: np.random.Generator, num_weights: int) -> Individual:
     """
     Create one random neural-network genotype.
     """
 
     individual = Individual()
 
-    individual.genotype = rng.normal(
-        loc=0.0,
-        scale=INIT_STD,
-        size=num_weights,
-    ).tolist()
+    individual.genotype = rng.normal(loc=0.0, scale=INIT_STD, size=num_weights).tolist()
 
     return individual
 
@@ -259,7 +227,7 @@ def survivor_selection(population: Population, population_size: int) -> Populati
     Keep the best individuals after parents and offspring are combined.
     """
 
-    ranked = population.alive.evaluated.sort(sort="min",attribute="fitness")
+    ranked = population.alive.evaluated.sort(sort="min", attribute="fitness")
 
     for individual in ranked[population_size:]:
         individual.alive = False

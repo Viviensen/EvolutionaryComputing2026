@@ -1,8 +1,4 @@
-
-"""Generate figures and summary from completed experiment CSV files."""
-
 from pathlib import Path
-
 import matplotlib.pyplot as plt
 import pandas as pd
 
