@@ -32,9 +32,7 @@ if str(ASSIGNMENT_DIR) not in sys.path:
 import A2_template_2026 as template
 
 
-# --------------------------------------------------------------------------- #
-# EA SETTINGS
-# --------------------------------------------------------------------------- #
+
 
 POP_SIZE = 30
 GENERATIONS = 130
@@ -47,12 +45,13 @@ MIN_IMPROVEMENT = 0.001
 type HistoryRow = dict[str, int | float]
 
 
-# --------------------------------------------------------------------------- #
-# CONTROLLER
-# --------------------------------------------------------------------------- #
+
 
 def get_inputs(data: mj.MjData) -> npt.NDArray[np.float64]:
-    """Controller inputs: hinge angles, rhythm and target direction."""
+    """
+    This function is the same as template.get_inputs(), 
+    except that it returns a 1D array instead of a 2D array.
+    """
 
     hinge_angles = data.qpos[7:]
 
@@ -85,7 +84,9 @@ def nn_controller(
     data: mj.MjData,
     weights: list[npt.NDArray[np.float64]],
 ) -> npt.NDArray[np.float64]:
-    """Same network as the template, but with get_inputs()."""
+    """
+    Same network as the template, but with get_inputs().
+    """
 
     w1, w2 = weights
 
@@ -104,7 +105,8 @@ def genotype_to_weights(
     input_size: int,
     output_size: int,
 ) -> list[npt.NDArray[np.float64]]:
-    """Convert a flat genotype into the two NN weight matrices."""
+    """
+    Convert a flat genotype into the two NN weight matrices."""
 
     genes = np.asarray(genotype, dtype=np.float64)
 
@@ -117,7 +119,9 @@ def genotype_to_weights(
 
 
 def get_num_weights() -> int:
-    """Determine the required genotype length."""
+    """
+    Determine the required genotype length.
+    """
 
     mj.set_mjcb_control(None)
 
@@ -127,7 +131,7 @@ def get_num_weights() -> int:
     world.spawn(
         robot.spec,
         position=template.SPAWN_POS,
-        correct_collision_with_floor=True,
+        correct_collision_with_floor=True
     )
 
     model = world.spec.compile()
@@ -145,16 +149,13 @@ def get_num_weights() -> int:
     )
 
 
-# --------------------------------------------------------------------------- #
-# RUN ONE INDIVIDUAL
-# --------------------------------------------------------------------------- #
+
 
 def evaluate_genotype(genotype: list[float]) -> float:
-    """Evaluate one evolved controller.
-
-    This follows run_experiment() from the template, except that the weights
-    come from the genotype instead of make_random_weights()and the inputs come
-    from get_inputs() instead of data.qpos. 
+    """
+    Evaluate one evolved controller, given run_experiment() from the template. 
+    The weights  come from the genotype instead of m
+    ake_random_weights()and the inputs come from get_inputs() instead of data.qpos. 
     """
 
     mj.set_mjcb_control(None)
@@ -166,7 +167,7 @@ def evaluate_genotype(genotype: list[float]) -> float:
     world.spawn(
         robot.spec,
         position=template.SPAWN_POS,
-        correct_collision_with_floor=True,
+        correct_collision_with_floor=True
     )
 
     # Same MuJoCo setup as the template
@@ -181,16 +182,9 @@ def evaluate_genotype(genotype: list[float]) -> float:
     output_size = int(model.nu)
 
     # Evolved weights instead of random weights
-    weights = genotype_to_weights(
-        genotype,
-        input_size,
-        output_size,
-    )
+    weights = genotype_to_weights( genotype, input_size, output_size)
 
-    def control_callback(
-        m: mj.MjModel,
-        d: mj.MjData,
-    ) -> None:
+    def control_callback(m: mj.MjModel, d: mj.MjData,) -> None:
         actions = nn_controller(m, d, weights)
         d.ctrl[:] = actions
 
@@ -199,32 +193,21 @@ def evaluate_genotype(genotype: list[float]) -> float:
     try:
         mj.set_mjcb_control(control_callback)
 
-        simple_runner(
-            model,
-            data,
-            duration=template.SIM_DURATION,
-        )
+        simple_runner(model, data, duration=template.SIM_DURATION)
 
     finally:
         mj.set_mjcb_control(None)
 
     final_position = template.get_core_position(data)
 
-    return template.fitness_function(
-        initial_position,
-        final_position,
-    )
+    return template.fitness_function(initial_position, final_position)
 
 
-# --------------------------------------------------------------------------- #
-# INITIAL POPULATION
-# --------------------------------------------------------------------------- #
 
-def make_individual(
-    rng: np.random.Generator,
-    num_weights: int,
-) -> Individual:
-    """Create one random neural-network genotype."""
+def make_individual(rng: np.random.Generator, num_weights: int,) -> Individual:
+    """
+    Create one random neural-network genotype.
+    """
 
     individual = Individual()
 
@@ -236,83 +219,47 @@ def make_individual(
 
     return individual
 
-
-# --------------------------------------------------------------------------- #
-# EA OPERATIONS
-# --------------------------------------------------------------------------- #
-
-def evaluate_population(
-    population: Population,
-) -> Population:
-    """Evaluate all individuals that still require evaluation."""
-
+def evaluate_population(population: Population) -> Population:
+    """
+    Evaluate all individuals that still require evaluation.
+    """
     for individual in population.unevaluated:
-
-        genotype = cast(
-            list[float],
-            individual.genotype,
-        )
-
+        genotype = cast(list[float], individual.genotype)
         individual.fitness = evaluate_genotype(genotype)
-
     return population
 
 
-def reproduce(
-    population: Population,
-    sigma: float,
-    offspring_count: int,
-    tournament_size: int,
-    rng: np.random.Generator,
-) -> Population:
-    """Tournament selection followed by Gaussian mutation."""
+def reproduce(population: Population, sigma: float, offspring_count: int,
+    tournament_size: int, rng: np.random.Generator) -> Population:
+    """
+    Tournament selection followed by Gaussian mutation.
+    """
 
     parents = population.alive.evaluated.to_list()
 
     for _ in range(offspring_count):
 
-        competitors = [
-            parents[int(rng.integers(len(parents)))]
-            for _ in range(tournament_size)
-        ]
+        competitors = [parents[int(rng.integers(len(parents)))] for _ in range(tournament_size)]
 
         # Lower fitness = better
-        parent = min(
-            competitors,
-            key=lambda individual: individual.fitness,
-        )
-
-        parent_genotype = np.asarray(
-            cast(list[float], parent.genotype),
-            dtype=np.float64,
-        )
-
-        mutation = rng.normal(
-            loc=0.0,
-            scale=sigma,
-            size=len(parent_genotype),
-        )
+        parent = min(competitors, key=lambda individual: individual.fitness)
+        parent_genotype = np.asarray(cast(list[float], parent.genotype), dtype=np.float64)
+        mutation = rng.normal(loc=0.0, scale=sigma, size=len(parent_genotype))
 
         child_genotype = parent_genotype + mutation
-
         child = Individual()
         child.genotype = child_genotype.tolist()
-
         population.append(child)
 
     return population
 
 
-def survivor_selection(
-    population: Population,
-    population_size: int,
-) -> Population:
-    """Keep the best individuals after parents and offspring are combined."""
+def survivor_selection(population: Population, population_size: int) -> Population:
+    """
+    Keep the best individuals after parents and offspring are combined.
+    """
 
-    ranked = population.alive.evaluated.sort(
-        sort="min",
-        attribute="fitness",
-    )
+    ranked = population.alive.evaluated.sort(sort="min",attribute="fitness")
 
     for individual in ranked[population_size:]:
         individual.alive = False
@@ -320,74 +267,45 @@ def survivor_selection(
     return population
 
 
-# --------------------------------------------------------------------------- #
-# STATISTICS
-# --------------------------------------------------------------------------- #
 
-def population_stats(
-    population: Population,
-) -> dict[str, float]:
-    """Return best and mean fitness of the living population."""
 
-    fitness = np.asarray(
-        [
-            individual.fitness
-            for individual in population.alive.evaluated
-        ],
-        dtype=np.float64,
-    )
+def population_stats(population: Population) -> dict[str, float]:
+    """
+    Return best and mean fitness of the living population.
+    """
+    fitness = np.asarray([individual.fitness for individual in population.alive.evaluated], dtype=np.float64)
 
     return {
         "best": float(np.min(fitness)),
-        "mean": float(np.mean(fitness)),
+        "mean": float(np.mean(fitness))
     }
 
 
-# --------------------------------------------------------------------------- #
-# RUN ONE EA
-# --------------------------------------------------------------------------- #
 
-def run_ea(
-    seed: int,
-    sigma: float,
-    population_size: int = POP_SIZE,
-    generations: int = GENERATIONS,
-    tournament_size: int = TOURNAMENT_SIZE,
-) -> tuple[list[HistoryRow], list[float]]:
-    """Run the EA once for one seed and one mutation strength."""
+
+def run_ea(seed: int, sigma: float, population_size: int = POP_SIZE,
+    generations: int = GENERATIONS, tournament_size: int = TOURNAMENT_SIZE) -> tuple[list[HistoryRow], list[float]]:
+    """
+    Run the EA once for one seed and one mutation strength.
+    """
 
     random.seed(seed)
     set_seed(seed)
-
     rng = np.random.default_rng(seed)
-
     num_weights = get_num_weights()
 
-    initial_population = Population(
-        [
-            make_individual(rng, num_weights)
-            for _ in range(population_size)
-        ]
-    )
-
-    initial_population = evaluate_population(
-        initial_population
-    )
+    initial_population = Population([make_individual(rng, num_weights) for _ in range(population_size)])
+    initial_population = evaluate_population(initial_population)
 
     history: list[HistoryRow] = [
         {
             "generation": 0,
-            **population_stats(initial_population),
+            **population_stats(initial_population)
         }
     ]
 
     sigma_name = str(sigma).replace(".", "_")
-
-    database = (
-        Path("__data__")
-        / "assignment_2"
-        / f"sigma_{sigma_name}_seed_{seed}.db"
-    )
+    database = (Path("__data__") / "assignment_2" / f"sigma_{sigma_name}_seed_{seed}.db")
 
     operations = [
         EAOperation(
@@ -395,15 +313,10 @@ def run_ea(
             sigma=sigma,
             offspring_count=population_size,
             tournament_size=tournament_size,
-            rng=rng,
+            rng=rng
         ),
-        EAOperation(
-            evaluate_population,
-        ),
-        EAOperation(
-            survivor_selection,
-            population_size=population_size,
-        ),
+        EAOperation(evaluate_population),
+        EAOperation(survivor_selection, population_size=population_size)
     ]
 
     ea = EA(
@@ -413,7 +326,7 @@ def run_ea(
         is_maximisation=False,
         quiet=True,
         db_file_path=database,
-        db_handling="delete",
+        db_handling="delete"
     )
 
     best_reference = float(history[0]["best"])
@@ -434,31 +347,20 @@ def run_ea(
             print(f"Plateau reached at generation {generation}, best={stats['best']:.4f}")
             break
 
-    best = ea.population.alive.evaluated.best(
-        sort="min",
-        attribute="fitness",
-        n=1,
-    )[0]
-
-    best_genotype = [
-        float(gene)
-        for gene in cast(list[float], best.genotype)
-    ]
+    best = ea.population.alive.evaluated.best(sort="min", attribute="fitness", n=1)[0]
+    best_genotype = [float(gene)for gene in cast(list[float], best.genotype)]
 
     return history, best_genotype
 
 
 # --------------------------------------------------------------------------- #
-# RANDOM-SEARCH BASELINE
-# --------------------------------------------------------------------------- #
 
 
-def run_random_search(
-    seed: int,
-    population_size: int = POP_SIZE,
-    generations: int = GENERATIONS,
-) -> list[HistoryRow]:
-    """Random-search baseline with plateau-based stopping."""
+
+def run_random_search(seed: int, population_size: int = POP_SIZE, generations: int = GENERATIONS) -> list[HistoryRow]:
+    """
+    Random-search baseline with plateau-based stopping.
+    """
 
     rng = np.random.default_rng(seed)
     num_weights = get_num_weights()
@@ -475,7 +377,7 @@ def run_random_search(
             genotype = rng.normal(
                 loc=0.0,
                 scale=INIT_STD,
-                size=num_weights,
+                size=num_weights
             ).tolist()
 
             fitness = evaluate_genotype(genotype)
@@ -485,7 +387,7 @@ def run_random_search(
         history.append({
             "generation": generation,
             "best": float(best_so_far),
-            "mean": float(np.mean(generation_fitness)),
+            "mean": float(np.mean(generation_fitness))
         })
 
         if best_so_far < best_reference - MIN_IMPROVEMENT:

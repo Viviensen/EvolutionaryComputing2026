@@ -25,12 +25,11 @@ def load_results() -> pd.DataFrame:
 
 
 def get_final(results: pd.DataFrame) -> pd.DataFrame:
-    return results.sort_values("generation").groupby(
-        ["method", "seed"], as_index=False
-    ).tail(1)
+    return results.sort_values("generation").groupby(["method", "seed"], as_index=False).tail(1)
 
 
 def plot_convergence(results: pd.DataFrame) -> None:
+
     max_generation = int(results["generation"].max())
     generations = range(max_generation + 1)
     extended: list[pd.DataFrame] = []
@@ -54,17 +53,12 @@ def plot_convergence(results: pd.DataFrame) -> None:
         stats["std"] = stats["std"].fillna(0)
 
         ax.plot(stats.index, stats["mean"], label=method)
-        ax.fill_between(
-            stats.index,
-            stats["mean"] - stats["std"],
-            stats["mean"] + stats["std"],
-            alpha=0.2,
-        )
+        ax.fill_between(stats.index, stats["mean"] - stats["std"], stats["mean"] + stats["std"], alpha=0.2)
 
     ax.set(
         xlabel="Generation",
         ylabel="Best distance to target",
-        title="Convergence across independent seeds",
+        title="Convergence across independent seeds"
     )
     ax.legend()
     ax.grid(alpha=0.2)
@@ -86,7 +80,7 @@ def plot_final_fitness(results: pd.DataFrame) -> None:
     ax.boxplot(values, tick_labels=methods)
     ax.set(
         ylabel="Final best distance to target",
-        title="Final fitness across independent seeds",
+        title="Final fitness across independent seeds"
     )
     ax.tick_params(axis="x", rotation=20)
     ax.grid(axis="y", alpha=0.2)
@@ -98,9 +92,7 @@ def plot_final_fitness(results: pd.DataFrame) -> None:
 def make_summary(results: pd.DataFrame) -> None:
     final = get_final(results)
 
-    summary = final.groupby("method")["best_fitness"].agg(
-        ["count", "mean", "std", "median", "min", "max"]
-    ).round(4)
+    summary = final.groupby("method")["best_fitness"].agg(["count", "mean", "std", "median", "min", "max"]).round(4)
 
     summary.to_csv(RESULTS_DIR / "final_summary.csv")
     print("\nFinal fitness summary (lower is better):")
@@ -118,7 +110,7 @@ def plot_stopping_generations(results: pd.DataFrame) -> None:
         min_generation=("generation", "min"),
         max_generation=("generation", "max"),
         plateau_count=("plateau_reached", "sum"),
-        total_runs=("seed", "count"),
+        total_runs=("seed", "count")
     ).round(2)
 
     summary.to_csv(RESULTS_DIR / "stopping_summary.csv")
@@ -139,7 +131,7 @@ def plot_stopping_generations(results: pd.DataFrame) -> None:
     ax.set(
         xlabel="Mutation strength",
         ylabel="Stopping generation",
-        title="Generations until plateau",
+        title="Generations until plateau"
     )
     ax.legend()
     ax.grid(axis="y", alpha=0.2)

@@ -9,26 +9,21 @@ import pandas as pd
 from EA import GENERATIONS, POP_SIZE, HistoryRow, run_ea, run_random_search
 
 
-# --------------------------------------------------------------------------- #
-# EXPERIMENTAL SETTINGS
-# --------------------------------------------------------------------------- #
+
 
 MUTATION_STRENGTHS = [0.05, 0.20, 0.50]
-N_SEEDS = 20
-
+N_SEEDS = 10
 RESULTS_DIR = Path("__data__") / "assignment_2" / "results_r2"
 RESULTS_DIR.mkdir(parents=True, exist_ok=True)
 
 type ResultRow = dict[str, str | int | float]
 
 
-# --------------------------------------------------------------------------- #
-# STORE RESULTS
-# --------------------------------------------------------------------------- #
 
-def add_history(rows: list[ResultRow], history: list[HistoryRow],
-                method: str, seed: int) -> None:
-    """Add one experimental run to the results table."""
+def add_history(rows: list[ResultRow], history: list[HistoryRow], method: str, seed: int) -> None:
+    """
+    Add one experimental run to the results table.
+    """
 
     for row in history:
         rows.append({
@@ -36,17 +31,14 @@ def add_history(rows: list[ResultRow], history: list[HistoryRow],
             "seed": seed,
             "generation": int(row["generation"]),
             "best_fitness": float(row["best"]),
-            "mean_fitness": float(row["mean"]),
+            "mean_fitness": float(row["mean"])
         })
 
 
-# --------------------------------------------------------------------------- #
-# RUN EXPERIMENT
-# --------------------------------------------------------------------------- #
-
-def run_experiment(condition: str, start_seed: int = 0,
-                   n_seeds: int = N_SEEDS) -> None:
-    """Run one configuration over independent seeds."""
+def run_experiment(condition: str, start_seed: int = 0, n_seeds: int = N_SEEDS) -> None:
+    """
+    Run one configuration over independent seeds.
+    """
 
     rows: list[ResultRow] = []
     output = RESULTS_DIR / f"{condition}_seed_{start_seed}_results.csv"
@@ -58,7 +50,7 @@ def run_experiment(condition: str, start_seed: int = 0,
             history = run_random_search(
                 seed=seed,
                 population_size=POP_SIZE,
-                generations=GENERATIONS,
+                generations=GENERATIONS
             )
             method = "Random search"
 
@@ -70,7 +62,7 @@ def run_experiment(condition: str, start_seed: int = 0,
                 seed=seed,
                 sigma=sigma,
                 population_size=POP_SIZE,
-                generations=GENERATIONS,
+                generations=GENERATIONS
             )
             method = f"EA sigma={sigma:.2f}"
 
@@ -85,18 +77,12 @@ def run_experiment(condition: str, start_seed: int = 0,
     print(f"\nResults saved to: {output}")
 
 
-# --------------------------------------------------------------------------- #
-# MAIN
-# --------------------------------------------------------------------------- #
-
 def main() -> None:
     parser = argparse.ArgumentParser()
-    parser.add_argument(
-        "condition",
-        choices=["0.05", "0.20", "0.50", "random"],
-    )
+    parser.add_argument("condition",choices=["0.05", "0.20", "0.50", "random"])
     parser.add_argument("--start-seed", type=int, default=0)
     parser.add_argument("--num-seeds", type=int, default=N_SEEDS)
+    
     args = parser.parse_args()
 
     if args.num_seeds < 1:
