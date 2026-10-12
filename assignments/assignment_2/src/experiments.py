@@ -49,7 +49,7 @@ def run_experiment(condition: str, start_seed: int = 0,
     """Run one configuration over independent seeds."""
 
     rows: list[ResultRow] = []
-    output = RESULTS_DIR / f"{condition}_results.csv"
+    output = RESULTS_DIR / f"{condition}_seed_{start_seed}_results.csv"
 
     for seed in range(start_seed, start_seed + n_seeds):
         if condition == "random":

@@ -7,8 +7,9 @@ import matplotlib.pyplot as plt
 import pandas as pd
 
 
-RESULTS_DIR = Path("__data__/assignment_2/results")
+RESULTS_DIR = Path("__data__/assignment_2/results_r2")
 CONDITIONS = ["0.05", "0.20", "0.50", "random"]
+METHOD_ORDER = ["EA sigma=0.05", "EA sigma=0.20", "EA sigma=0.50", "Random search"]
 
 
 def load_results() -> pd.DataFrame:
@@ -37,7 +38,6 @@ def plot_convergence(results: pd.DataFrame) -> None:
     for (method, seed), group in results.groupby(["method", "seed"]):
         group = group.set_index("generation").reindex(generations)
         group["best_fitness"] = group["best_fitness"].ffill()
-
         group = group.assign(method=str(method), seed=seed)
         extended.append(group.reset_index())
 
@@ -45,7 +45,11 @@ def plot_convergence(results: pd.DataFrame) -> None:
 
     fig, ax = plt.subplots(figsize=(9, 5))
 
-    for method, group in data.groupby("method"):
+    for method in METHOD_ORDER:
+        group = data[data["method"] == method]
+        if group.empty:
+            continue
+
         stats = group.groupby("generation")["best_fitness"].agg(["mean", "std"])
         stats["std"] = stats["std"].fillna(0)
 
@@ -57,8 +61,11 @@ def plot_convergence(results: pd.DataFrame) -> None:
             alpha=0.2,
         )
 
-    ax.set(xlabel="Generation", ylabel="Best distance to target",
-           title="Convergence across independent seeds")
+    ax.set(
+        xlabel="Generation",
+        ylabel="Best distance to target",
+        title="Convergence across independent seeds",
+    )
     ax.legend()
     ax.grid(alpha=0.2)
     fig.tight_layout()
@@ -68,7 +75,8 @@ def plot_convergence(results: pd.DataFrame) -> None:
 
 def plot_final_fitness(results: pd.DataFrame) -> None:
     final = get_final(results)
-    methods = list(final["method"].unique())
+    methods = [method for method in METHOD_ORDER if method in final["method"].unique()]
+
     values = [
         final.loc[final["method"] == method, "best_fitness"].to_numpy()
         for method in methods
@@ -76,8 +84,10 @@ def plot_final_fitness(results: pd.DataFrame) -> None:
 
     fig, ax = plt.subplots(figsize=(9, 5))
     ax.boxplot(values, tick_labels=methods)
-    ax.set(ylabel="Final best distance to target",
-           title="Final fitness across independent seeds")
+    ax.set(
+        ylabel="Final best distance to target",
+        title="Final fitness across independent seeds",
+    )
     ax.tick_params(axis="x", rotation=20)
     ax.grid(axis="y", alpha=0.2)
     fig.tight_layout()
@@ -115,7 +125,9 @@ def plot_stopping_generations(results: pd.DataFrame) -> None:
     print("\nStopping generation summary:")
     print(summary)
 
-    methods = list(final["method"].unique())
+    ea_order = ["EA sigma=0.05", "EA sigma=0.20", "EA sigma=0.50"]
+    methods = [method for method in ea_order if method in final["method"].unique()]
+
     values = [
         final.loc[final["method"] == method, "generation"].to_numpy()
         for method in methods
@@ -124,8 +136,11 @@ def plot_stopping_generations(results: pd.DataFrame) -> None:
     fig, ax = plt.subplots(figsize=(9, 5))
     ax.boxplot(values, tick_labels=methods)
     ax.axhline(130, linestyle="--", color="gray", label="Maximum generations")
-    ax.set(xlabel="Mutation strength", ylabel="Stopping generation",
-           title="Generations until plateau")
+    ax.set(
+        xlabel="Mutation strength",
+        ylabel="Stopping generation",
+        title="Generations until plateau",
+    )
     ax.legend()
     ax.grid(axis="y", alpha=0.2)
 

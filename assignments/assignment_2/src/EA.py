@@ -37,7 +37,7 @@ import A2_template_2026 as template
 # --------------------------------------------------------------------------- #
 
 POP_SIZE = 30
-GENERATIONS = 150
+GENERATIONS = 130
 TOURNAMENT_SIZE = 2
 INIT_STD = 0.5
 PLATEAU_SIZE = 30
